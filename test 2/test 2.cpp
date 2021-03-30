@@ -43,6 +43,9 @@ typedef struct
 	uint8_t	use[20];
 	uint8_t	check_in[20];
 	uint8_t count;
+	float	line_dis[42];
+	float	line_flow[42];
+	uint8_t	flow_count;
 
 	float left;			//×óË®±ß
 	float right;		//ÓÒË®±ß
@@ -62,6 +65,39 @@ Temp_flow_t		xtemp;
 SettingParams_t   xSettingParams;
 Measure_t    xMeasure;
 DDMSJ_t     xDdmsj;
+
+float dmsj[32][2] = {
+	0.00,55.56,
+	8.8,55.39,
+	17.5,53.03,
+	32.8,51.40,
+	35.1,50.75,
+	40.0,50.72,
+	45.0,50.65,
+	50.0,50.60,
+	55.0,50.52,
+	60.0,50.46,
+	65.0,50.40,
+	70.0,49.98,
+	75.0,49.55,
+	80.0,49.61,
+	85.0,49.56,
+	90.0,49.52,
+	95.0,49.57,
+	100,49.46,
+	105,49.02,
+	110,48.94,
+	120,49.09,
+	125,48.78,
+	135,48.75,
+	140,49.58,
+	150,49.82,
+	155,50.75,
+	160,52.71,
+	164,54.75,
+	168,55.62,
+	168,59.61,
+};
 
 /*
 float getRopeLongByDistance(float distance)
@@ -132,20 +168,39 @@ float StartDistance_Compensate(float dis)
 
 	return dis;
 }
-
+//根据起点距、水位，获取其位置上的水深
+float getdepth(DDMSJ_t *pDdmsj, float Water_Level, float stard)
+{
+	int i, j, k;
+	float dep = 0;
+	for (i = 0;i < pDdmsj->DDMSJ_Measure_Num-1;i++)
+	{
+		if (stard == pDdmsj->DDMSJ_Data[i][0])
+			return (Water_Level - pDdmsj->DDMSJ_Data[i][1]);
+		if ((stard > pDdmsj->DDMSJ_Data[i][0])&&(stard<pDdmsj->DDMSJ_Data[i+1][0]))
+		{
+			dep = (pDdmsj->DDMSJ_Data[i + 1][1] - pDdmsj->DDMSJ_Data[i][1]) 
+				*(stard - pDdmsj->DDMSJ_Data[i][0])
+				/ (pDdmsj->DDMSJ_Data[i + 1][0] - pDdmsj->DDMSJ_Data[i][0])
+				+ pDdmsj->DDMSJ_Data[i][1];
+			return dep;
+		}
+	}
+	return dep;
+}
 void Cal_Water_shuibian(DDMSJ_t *pDdmsj, float Water_Level)
 {
 	float temparea;
-	int i,j, k,l;
+	int i,j, k,l,is_left=0,is_right=0;
 	k = 0;
 
 	do {
 		float cur_line = 0;
-		if (xMeasure.flowresult.CurrentArea == 0)	//水流面积为0时，流量为0
-		{
-			xMeasure.flowresult.flow = 0;
-			break;
-		}
+		//if (xMeasure.flowresult.CurrentArea == 0)	//水流面积为0时，流量为0
+		//{
+		//	xMeasure.flowresult.flow = 0;
+		//	break;
+		//}
 
 		xtemp.count = 0;
 		//排序
@@ -186,28 +241,45 @@ void Cal_Water_shuibian(DDMSJ_t *pDdmsj, float Water_Level)
 
 		//排序完成
 
-		for (i = 0;i < xtemp.count;i++)
+		/*for (i = 0;i < xtemp.count;i++)
 		{
 			if ((xtemp.distance[i] > xMeasure.flowresult.left) && (xtemp.distance[i] < xMeasure.flowresult.right))
 				break;
-		}
-		if (i >= xtemp.count)
+		}*/
+		/*if (i >= xtemp.count)
 		{
 			xMeasure.flowresult.flow = 0;
 			break;
-		}
-		//此时有测流垂线位于左右水边之间
-		cur_line = xMeasure.flowresult.left;
-		for (i = 0;i < xtemp.count;i++)
-		{
-			if (xtemp.distance[i] > cur_line)
-				break;
-		}
-		//现在计算cur_line与xtemp.distance[i]之间的面积
-		temparea = 0;
-		for (j = 0;j < pDdmsj->DDMSJ_Measure_Num;j++)
-		{
-			//当断面线位置位于cur_line和xtemp.distance[i]之间时，计算cur_line与断面线之间的面积，然后累积到temp_area中
+		}*/
+
+		xMeasure.flowresult.flow_count = 0;
+		for (j = 0,i=0,k=0;j < pDdmsj->DDMSJ_Measure_Num;j++)
+		{	//将测量垂线插入断面中
+			while (i < xtemp.count)
+			{
+				if (xtemp.distance[i] < pDdmsj->DDMSJ_Data[j][0])
+				{
+					xMeasure.flowresult.line_dis[k] = xtemp.distance[i];
+					xMeasure.flowresult.line_flow[k] = xtemp.velocity[i];
+					k++;
+					i++;
+				}
+				else {
+					break;
+				}
+			}
+
+			if (xtemp.distance[i] == pDdmsj->DDMSJ_Data[j][0])
+			{
+				xMeasure.flowresult.line_dis[k] = xtemp.distance[i];
+				xMeasure.flowresult.line_flow[k] = xtemp.velocity[i];
+				i++;
+				k++;
+			}
+			else {
+				xMeasure.flowresult.line_dis[k] = pDdmsj->DDMSJ_Data[j][0];
+				k++;
+			}
 		}
 
 	} while (0);
@@ -231,6 +303,7 @@ int main()
 		printf("%.2f\n", StartDistance_Compensate(i));
 	}*/
 
+	//设置测量垂线
 	if (1)
 	{
 		xMeasure.flowresult.distance[0] = 150;
@@ -262,14 +335,26 @@ int main()
 		xMeasure.flowresult.check_in[15] = 1;
 	}
 
+	for (int i = 0;i < 32;i++)
+	{
+		xDdmsj.DDMSJ_Data[i][0] = dmsj[i][0];
+		xDdmsj.DDMSJ_Data[i][1] = dmsj[i][1];
+	}
+	xDdmsj.DDMSJ_Measure_Num = 30;
+
+
 	Cal_Water_shuibian(&xDdmsj,1);
 
-	for (int i = 0;i < xtemp.count;i++)
+	for(int i = 0;i < xtemp.count;i++)
 	{
 		printf("%.1f,%.1f\n", xtemp.distance[i], xtemp.velocity[i]);
 	}
-	printf("count is:%d\n", xtemp.count);
+	printf("count is:%d\n\n", xtemp.count);
 
+	for (int i = 0;i <42;i++)
+	{
+		printf("%.1f,%.1f\n", xMeasure.flowresult.line_dis[i], xMeasure.flowresult.line_flow[i]);
+	}
 
 
 	printf("按回车退出");
